@@ -14,12 +14,41 @@ const fg = require("fast-glob");
 // );
 
 const sqlite3 = require("sqlite3").verbose();
-const db = new sqlite3.Database("libx");
+const DB = new sqlite3.Database("musx-db");
 
-const x = fg.sync("**", {
-  absolute: false,
-  onlyDirectories: true,
-  ignore: "node_modules",
-});
+// ? create table
+DB.run(
+  `CREATE TABLE IF NOT EXISTS directory (
+        path VARCHAR(100) PRIMARY KEY,
+        timestamp DATETIME
+    )`
+);
 
-console.log(x);
+// ? stream
+async function scan() {
+  const stream = fg.stream(["Music/**"], {
+    absolute: false,
+    onlyDirectories: false,
+    dot: false,
+    ignore: ["**.png"],
+  });
+
+  for await (const entry of stream) {
+    //console.log(entry);
+    DB.run(`INSERT INTO directory VALUES (?, DateTime('now'))`, [entry]);
+  }
+}
+
+function truncate() {
+  DB.run(`DELETE FROM directory`);
+}
+
+function get() {
+  DB.each("SELECT * FROM directory", (err, row) => {
+    console.log(row.path);
+  });
+}
+
+//get();
+scan();
+//truncate();
