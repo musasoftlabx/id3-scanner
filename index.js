@@ -1,10 +1,12 @@
-const FG = require("fast-glob");
+// * Libraries
 const { exec } = require("child_process");
-
+const FG = require("fast-glob");
 const DB = require("better-sqlite3")("musx.db", {});
+
+// * Configs
 DB.pragma("journal_mode = WAL");
 
-// ? create table
+// ? Create table if it doesn't exist
 DB.prepare(
   `CREATE TABLE IF NOT EXISTS "directory" (
       path VARCHAR(100) PRIMARY KEY,
@@ -12,11 +14,11 @@ DB.prepare(
       title VARCHAR (255),
       album VARCHAR(255),
       album_artist VARCHAR(255),
-      artist VARCHAR(255),
+      artists VARCHAR(255),
       genre VARCHAR(20),
-      year INT,
+      year VARCHAR(20),
       track TINYINT(3),
-      rating TINYINT(1),
+      rating DOUBLE,
       bitrate INT(10),
       size MEDIUMINT,
       duration DOUBLE,
@@ -30,9 +32,8 @@ DB.prepare(
     )`
 ).run();
 
-// ? stream
 async function scan() {
-  const stream = FG.stream(["Music/**/*.mp3"], {
+  const stream = FG.stream(["Music/**/*.mp3", "Music/**/*.aac"], {
     absolute: false,
     onlyDirectories: false,
     dot: false,
@@ -40,7 +41,13 @@ async function scan() {
     ignore: ["**.png"],
   });
 
+  let count = 0;
+
+  // ? Loop through each stream entry
   for await (const entry of stream) {
+    count++;
+    console.log(`${count}. ${entry}`);
+    // ? Execute ffprobe to retrieve metadata
     exec(
       `ffprobe -show_entries 'stream:format' -output_format json "./${entry}"`,
       (error, stdout, stderr) => {
@@ -48,44 +55,33 @@ async function scan() {
           console.error(`error: ${error.message}`);
           return;
         }
-
-        const pretty = JSON.parse(stdout);
-        const { streams, format } = pretty;
-
+        // ? If no errors,
+        const { streams, format } = JSON.parse(stdout);
+        // ? Remove root directory from entry
         const path = entry.replace("Music/", "");
-
+        // ? Destructure
         const { tags, bit_rate: bitrate, size, duration, format_name } = format;
-        const {
-          album,
-          artist,
-          album_artist,
-          genre,
-          title,
-          track,
-          date: year,
-        } = tags;
-
-        //const filename = path.split("/").slice(-1)[0];
-
+        // ? Get the path and rename it to make artwork
         const artwork = `${path
           .replace(`.${format_name}`, "")
-          .replace(/[^a-zA-Z0-9]/g, "_")}.jpg`; //\W+
-
+          .replace(/[^a-zA-Z0-9]/g, "_")}.jpg`; //\W+ //const filename = path.split("/").slice(-1)[0];
+        // ? Execute ffmpeg to extract artwork
         exec(
           `ffmpeg -y -i "./${entry}" -an -vcodec copy "./Artwork/${artwork}"`,
           () => {
+            // ? Insert record to DB
             try {
               DB.prepare(
                 `INSERT INTO directory VALUES (?,DateTime('now'),?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,NULL)`
               ).run([
                 path,
-                title,
-                album,
-                album_artist,
-                artist,
-                genre,
-                year,
-                track,
+                tags?.title,
+                tags?.album,
+                tags?.album_artist,
+                tags?.artist,
+                tags?.genre,
+                tags?.date,
+                tags?.track,
                 bitrate,
                 size,
                 duration,
@@ -120,7 +116,8 @@ function get(level) {
   ];
 }
 
+console.log(get(""));
 //console.log(get("Tanzania/"));
 //console.log(get("Tanzania/Rayvanny/Flowers III/"));
-scan();
+//scan();
 //truncate();
