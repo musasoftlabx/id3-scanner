@@ -1,42 +1,38 @@
-const NodeID3 = require("node-id3");
-const fg = require("fast-glob");
+const FG = require("fast-glob");
+const { exec } = require("child_process");
 
-//const tags = NodeID3.read('./Bang Out.mp3');
-//ffprobe -show_format -pretty -print_format json "/Users/musa-mutetwi/projects/web/id3/Music/Manzi Nte.mp3"
-//ffmpeg -i "/Users/musa-mutetwi/projects/web/id3/Music/Manzi Nte.mp3" -an -vcodec copy "/Users/musa-mutetwi/projects/web/id3/Music/Manzi Nte.png"
-
-// NodeID3.read(
-//   "./Music//Manzi Nte (feat. Masterpiece YVK, Ceeka RSA, M.J, Silas Africa & Al Xapo).mp3",
-//   function (err, tags) {
-//     if (err) throw err;
-//     console.log(tags);
-//   }
-// );
-
-//const sqlite3 = require("sqlite-async").verbose();
-//const sqlite3 = require("sqlite3").verbose();
 const DB = require("better-sqlite3")("musx.db", {});
-//const DB = new sqlite3.Database("musx-db");
 DB.pragma("journal_mode = WAL");
 
 // ? create table
 DB.prepare(
-  `CREATE TABLE IF NOT EXISTS directory (
+  `CREATE TABLE IF NOT EXISTS "directory" (
       path VARCHAR(100) PRIMARY KEY,
-      timestamp DATETIME
-    )`
-).run();
-
-DB.prepare(
-  `CREATE TABLE IF NOT EXISTS directory (
-      path VARCHAR(100) PRIMARY KEY,
-      timestamp DATETIME
+      sync_date DATETIME,
+      title VARCHAR (255),
+      album VARCHAR(255),
+      album_artist VARCHAR(255),
+      artist VARCHAR(255),
+      genre VARCHAR(20),
+      year INT,
+      track TINYINT(3),
+      rating TINYINT(1),
+      bitrate INT(10),
+      size MEDIUMINT,
+      duration DOUBLE,
+      format VARCHAR(5),
+      channels TINYINT(1),
+      channel_layout VARCHAR(15),
+      sample_rate INT(10),
+      encoder VARCHAR(20),
+      artwork VARCHAR(255),
+      lyrics TEXT
     )`
 ).run();
 
 // ? stream
 async function scan() {
-  const stream = fg.stream(["Music/**/*.mp3"], {
+  const stream = FG.stream(["Music/**/*.mp3"], {
     absolute: false,
     onlyDirectories: false,
     dot: false,
@@ -45,19 +41,73 @@ async function scan() {
   });
 
   for await (const entry of stream) {
-    const path = entry.replace("Music/", "");
-    try {
-      DB.prepare(`INSERT INTO directory VALUES (?, DateTime('now'))`).run([
-        path,
-      ]);
-    } catch (error) {
-      console.log(err.message);
-    }
+    exec(
+      `ffprobe -show_entries 'stream:format' -output_format json "./${entry}"`,
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error(`error: ${error.message}`);
+          return;
+        }
+
+        const pretty = JSON.parse(stdout);
+        const { streams, format } = pretty;
+
+        const path = entry.replace("Music/", "");
+
+        const { tags, bit_rate: bitrate, size, duration, format_name } = format;
+        const {
+          album,
+          artist,
+          album_artist,
+          genre,
+          title,
+          track,
+          date: year,
+        } = tags;
+
+        //const filename = path.split("/").slice(-1)[0];
+
+        const artwork = `${path
+          .replace(`.${format_name}`, "")
+          .replace(/[^a-zA-Z0-9]/g, "_")}.jpg`; //\W+
+
+        exec(
+          `ffmpeg -y -i "./${entry}" -an -vcodec copy "./Artwork/${artwork}"`,
+          () => {
+            try {
+              DB.prepare(
+                `INSERT INTO directory VALUES (?,DateTime('now'),?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,NULL)`
+              ).run([
+                path,
+                title,
+                album,
+                album_artist,
+                artist,
+                genre,
+                year,
+                track,
+                bitrate,
+                size,
+                duration,
+                format_name,
+                streams[0].channels,
+                streams[0].channel_layout,
+                streams[0].sample_rate,
+                streams[0]?.tags?.encoder,
+                artwork,
+              ]);
+            } catch (err) {
+              console.log(err.message);
+            }
+          }
+        );
+      }
+    );
   }
 }
 
 function truncate() {
-  DB.run(`DELETE FROM directory`);
+  DB.prepare(`DELETE FROM directory`).run();
 }
 
 function get(level) {
@@ -70,7 +120,7 @@ function get(level) {
   ];
 }
 
-console.log(get("Tanzania/"));
+//console.log(get("Tanzania/"));
 //console.log(get("Tanzania/Rayvanny/Flowers III/"));
-//scan();
+scan();
 //truncate();
