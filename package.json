@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "fast-glob": "^3.3.2",
+    "lodash": "^4.17.21",
     "node-id3": "^0.2.6",
     "sqlite3": "^5.1.7"
   },
