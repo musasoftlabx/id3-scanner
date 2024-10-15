@@ -13,24 +13,26 @@ const fg = require("fast-glob");
 //   }
 // );
 
-const sqlite3 = require("sqlite3").verbose();
-const DB = require("better-sqlite3")("musx-db", options);
+//const sqlite3 = require("sqlite-async").verbose();
+//const sqlite3 = require("sqlite3").verbose();
+const DB = require("better-sqlite3")("musx.db", {});
 //const DB = new sqlite3.Database("musx-db");
+DB.pragma("journal_mode = WAL");
 
 // ? create table
-DB.run(
+DB.prepare(
   `CREATE TABLE IF NOT EXISTS directory (
       path VARCHAR(100) PRIMARY KEY,
       timestamp DATETIME
     )`
-);
+).run();
 
-DB.run(
+DB.prepare(
   `CREATE TABLE IF NOT EXISTS directory (
       path VARCHAR(100) PRIMARY KEY,
       timestamp DATETIME
     )`
-);
+).run();
 
 // ? stream
 async function scan() {
@@ -44,14 +46,13 @@ async function scan() {
 
   for await (const entry of stream) {
     const path = entry.replace("Music/", "");
-    DB.run(
-      `INSERT INTO directory VALUES (?, DateTime('now'))`,
-      [path],
-      (err) => {
-        if (err) console.log(err.message);
-        return;
-      }
-    );
+    try {
+      DB.prepare(`INSERT INTO directory VALUES (?, DateTime('now'))`).run([
+        path,
+      ]);
+    } catch (error) {
+      console.log(err.message);
+    }
   }
 }
 
@@ -60,37 +61,16 @@ function truncate() {
 }
 
 function get(level) {
-  // DB.each(
-  //   `SELECT path FROM directory WHERE path LIKE '%${level}%'`,
-  //   (err, { path }) => {
-  //     if (err) return err.message;
-  //     //res.push(path.replace(level, "").split("/")[0]);
-  //     return path.replace(level, "").split("/")[0];
-  //   }
-  // );
+  const paths = DB.prepare(
+    `SELECT path FROM directory WHERE path LIKE '%${level}%'`
+  ).all();
 
-  // const x = DB.all(
-  //   `SELECT path FROM directory WHERE path LIKE '%${level}%'`,
-  //   (err, paths) => {
-  //     if (err) return err.message;
-
-  //     console.log([
-  //       ...new Set( // new Set removes duplicates
-  //         paths.map(({ path }) => path.replace(level, "").split("/")[0])
-  //       ),
-  //     ]);
-  //   }
-  // );
-
-  const x = DB.all(`SELECT path FROM directory WHERE path LIKE '%${level}%'`);
-
-  console.log(x);
-  // setTimeout(() => {
-  //   console.log([...new Set(res)]);
-  // }, 1000);
+  return [
+    ...new Set(paths.map(({ path }) => path.replace(level, "").split("/")[0])), // new Set removes duplicates
+  ];
 }
 
-get("Tanzania/");
-//get("Tanzania/Rayvanny/Flowers III/");
+console.log(get("Tanzania/"));
+//console.log(get("Tanzania/Rayvanny/Flowers III/"));
 //scan();
 //truncate();
